@@ -4,16 +4,16 @@ import scala.collection.mutable
 import scala.util.Random
 
 case class IVFConfig(
-    nPartitions: Int = 256,
-    nProbes: Int = 20,
-    maxKMeansIterations: Int = 50
+  nPartitions: Int = 256,
+  nProbes: Int = 20,
+  maxKMeansIterations: Int = 50
 )
 
 class IVFIndex(dimension: Int, metric: DistanceMetric, config: IVFConfig):
 
-  private var centroids: Array[Array[Float]] = Array.empty
+  private var centroids: Array[Array[Float]]              = Array.empty
   private var partitions: Array[mutable.ArrayBuffer[Int]] = Array.empty
-  private var _trained: Boolean = false
+  private var _trained: Boolean                           = false
 
   def isTrained: Boolean = _trained
 
@@ -27,10 +27,10 @@ class IVFIndex(dimension: Int, metric: DistanceMetric, config: IVFConfig):
     _trained = true
 
   def search(
-      query: Array[Float],
-      vectors: IndexedSeq[Array[Float]],
-      k: Int,
-      nProbes: Int = config.nProbes
+    query: Array[Float],
+    vectors: IndexedSeq[Array[Float]],
+    k: Int,
+    nProbes: Int = config.nProbes
   ): IndexedSeq[(Int, Float)] =
     require(_trained, "Index not trained")
     val probes = math.min(nProbes, centroids.length)
@@ -51,9 +51,9 @@ class IVFIndex(dimension: Int, metric: DistanceMetric, config: IVFConfig):
     partitions(nearestCentroid(vector)) += index
 
   private def nearestCentroid(v: Array[Float]): Int =
-    var best = 0
+    var best     = 0
     var bestDist = Float.MaxValue
-    var i = 0
+    var i        = 0
     while i < centroids.length do
       val d = DistanceMetric.compute(metric, v, centroids(i))
       if d < bestDist then
@@ -65,13 +65,13 @@ class IVFIndex(dimension: Int, metric: DistanceMetric, config: IVFConfig):
   // ---- K-means with k-means++ initialization ----
 
   private def kmeans(
-      vectors: IndexedSeq[Array[Float]],
-      k: Int,
-      maxIter: Int,
-      rng: Random
+    vectors: IndexedSeq[Array[Float]],
+    k: Int,
+    maxIter: Int,
+    rng: Random
   ): Array[Array[Float]] =
     import scala.util.boundary, boundary.break
-    val centers = kmeansppInit(vectors, k, rng)
+    val centers     = kmeansppInit(vectors, k, rng)
     val assignments = new Array[Int](vectors.size)
 
     boundary:
@@ -104,9 +104,9 @@ class IVFIndex(dimension: Int, metric: DistanceMetric, config: IVFConfig):
       centers
 
   private def nearest(v: Array[Float], centers: Array[Array[Float]]): Int =
-    var best = 0
+    var best     = 0
     var bestDist = Float.MaxValue
-    var i = 0
+    var i        = 0
     while i < centers.length do
       val d = DistanceMetric.l2Squared(v, centers(i))
       if d < bestDist then
@@ -116,16 +116,16 @@ class IVFIndex(dimension: Int, metric: DistanceMetric, config: IVFConfig):
     best
 
   private def kmeansppInit(
-      vectors: IndexedSeq[Array[Float]],
-      k: Int,
-      rng: Random
+    vectors: IndexedSeq[Array[Float]],
+    k: Int,
+    rng: Random
   ): Array[Array[Float]] =
-    val chosen = mutable.ArrayBuffer(rng.nextInt(vectors.size))
+    val chosen  = mutable.ArrayBuffer(rng.nextInt(vectors.size))
     val minDist = Array.fill(vectors.size)(Float.MaxValue)
 
     while chosen.size < k do
       val last = vectors(chosen.last)
-      var i = 0
+      var i    = 0
       while i < vectors.size do
         val d = DistanceMetric.l2Squared(vectors(i), last)
         if d < minDist(i) then minDist(i) = d
@@ -137,11 +137,11 @@ class IVFIndex(dimension: Int, metric: DistanceMetric, config: IVFConfig):
         chosen ++= remaining.take(k - chosen.size)
         return chosen.take(k).map(i => vectors(i).clone()).toArray
 
-      val r = rng.nextDouble() * total
-      var cum = 0.0
+      val r        = rng.nextDouble() * total
+      var cum      = 0.0
       var selected = 0
-      var j = 0
-      var found = false
+      var j        = 0
+      var found    = false
       while j < vectors.size && !found do
         cum += minDist(j)
         if cum >= r then

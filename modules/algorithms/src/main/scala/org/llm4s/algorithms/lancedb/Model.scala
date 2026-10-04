@@ -9,21 +9,21 @@ enum MetadataValue:
   case BoolVal(value: Boolean)
 
 case class Schema(
-    dimension: Int,
-    metric: DistanceMetric = DistanceMetric.L2
+  dimension: Int,
+  metric: DistanceMetric = DistanceMetric.L2
 )
 
 case class VectorRecord(
-    id: Long,
-    vector: Array[Float],
-    metadata: Map[String, MetadataValue] = Map.empty
+  id: Long,
+  vector: Array[Float],
+  metadata: Map[String, MetadataValue] = Map.empty
 ):
   override def toString: String =
     s"VectorRecord(id=$id, dim=${vector.length}, metadata=$metadata)"
 
 case class SearchResult(
-    record: VectorRecord,
-    distance: Float
+  record: VectorRecord,
+  distance: Float
 ):
   override def toString: String =
     s"SearchResult(id=${record.id}, distance=$distance, metadata=${record.metadata})"

@@ -14,7 +14,7 @@ object DistanceMetric:
 
   def l2Squared(a: Array[Float], b: Array[Float]): Float =
     var sum = 0.0f
-    var i = 0
+    var i   = 0
     while i < a.length do
       val d = a(i) - b(i)
       sum += d * d
@@ -22,10 +22,10 @@ object DistanceMetric:
     sum
 
   def cosineDistance(a: Array[Float], b: Array[Float]): Float =
-    var dot = 0.0f
+    var dot   = 0.0f
     var normA = 0.0f
     var normB = 0.0f
-    var i = 0
+    var i     = 0
     while i < a.length do
       dot += a(i) * b(i)
       normA += a(i) * a(i)
@@ -36,7 +36,7 @@ object DistanceMetric:
 
   def negativeDot(a: Array[Float], b: Array[Float]): Float =
     var dot = 0.0f
-    var i = 0
+    var i   = 0
     while i < a.length do
       dot += a(i) * b(i)
       i += 1

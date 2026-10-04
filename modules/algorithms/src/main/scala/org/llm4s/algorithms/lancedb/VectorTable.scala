@@ -4,9 +4,9 @@ import scala.collection.mutable
 
 class VectorTable(val name: String, val schema: Schema):
 
-  private val records = mutable.ArrayBuffer.empty[VectorRecord]
-  private val vectors = mutable.ArrayBuffer.empty[Array[Float]]
-  private var nextId: Long = 0L
+  private val records                 = mutable.ArrayBuffer.empty[VectorRecord]
+  private val vectors                 = mutable.ArrayBuffer.empty[Array[Float]]
+  private var nextId: Long            = 0L
   private var index: Option[IVFIndex] = None
 
   def size: Int = records.size
@@ -31,8 +31,8 @@ class VectorTable(val name: String, val schema: Schema):
     records.find(_.id == id)
 
   def delete(ids: Set[Long]): Int =
-    val before = records.size
-    val keep = records.indices.filterNot(i => ids.contains(records(i).id))
+    val before      = records.size
+    val keep        = records.indices.filterNot(i => ids.contains(records(i).id))
     val keptRecords = keep.map(records(_))
     val keptVectors = keep.map(vectors(_))
     records.clear()
@@ -58,11 +58,11 @@ class VectorTable(val name: String, val schema: Schema):
     new SearchQuery(this, query, schema.metric)
 
   private[lancedb] def executeSearch(
-      query: Array[Float],
-      k: Int,
-      metric: DistanceMetric,
-      nProbes: Int,
-      filter: Option[MetadataFilter]
+    query: Array[Float],
+    k: Int,
+    metric: DistanceMetric,
+    nProbes: Int,
+    filter: Option[MetadataFilter]
   ): Seq[SearchResult] =
     if records.isEmpty then return Seq.empty
 

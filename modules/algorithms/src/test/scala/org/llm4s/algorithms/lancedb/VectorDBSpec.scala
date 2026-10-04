@@ -61,7 +61,7 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
   // ---- VectorDB ----
 
   "VectorDB" should "create and open tables" in {
-    val db = VectorDB.open("test")
+    val db    = VectorDB.open("test")
     val table = db.createTable("vectors", Schema(4))
     db.tableNames should contain("vectors")
     db.openTable("vectors") shouldBe Some(table)
@@ -88,10 +88,12 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   "VectorTable" should "add and retrieve records" in {
     val table = new VectorTable("test", Schema(3))
-    val ids = table.add(Seq(
-      (vec(1, 0, 0), Map("label" -> MetadataValue.StringVal("a"))),
-      (vec(0, 1, 0), Map("label" -> MetadataValue.StringVal("b")))
-    ))
+    val ids = table.add(
+      Seq(
+        (vec(1, 0, 0), Map("label" -> MetadataValue.StringVal("a"))),
+        (vec(0, 1, 0), Map("label" -> MetadataValue.StringVal("b")))
+      )
+    )
     ids shouldBe Seq(0L, 1L)
     table.size shouldBe 2
     table.get(0L).map(_.metadata("label")) shouldBe Some(MetadataValue.StringVal("a"))
@@ -100,7 +102,7 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   it should "add vectors without metadata" in {
     val table = new VectorTable("test", Schema(3))
-    val ids = table.addVectors(Seq(vec(1, 0, 0), vec(0, 1, 0)))
+    val ids   = table.addVectors(Seq(vec(1, 0, 0), vec(0, 1, 0)))
     ids shouldBe Seq(0L, 1L)
     table.get(0L).map(_.metadata) shouldBe Some(Map.empty)
   }
@@ -126,12 +128,14 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   "Brute-force search" should "return nearest neighbors in L2" in {
     val table = new VectorTable("test", Schema(4))
-    table.addVectors(Seq(
-      vec(1, 0, 0, 0),
-      vec(0, 1, 0, 0),
-      vec(0, 0, 1, 0),
-      vec(0.9f, 0.1f, 0, 0)
-    ))
+    table.addVectors(
+      Seq(
+        vec(1, 0, 0, 0),
+        vec(0, 1, 0, 0),
+        vec(0, 0, 1, 0),
+        vec(0.9f, 0.1f, 0, 0)
+      )
+    )
     val results = table.search(vec(1, 0, 0, 0)).limit(2).execute()
     results.size shouldBe 2
     results.head.record.id shouldBe 0L
@@ -147,7 +151,7 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
   }
 
   it should "return empty for empty table" in {
-    val table = new VectorTable("test", Schema(2))
+    val table   = new VectorTable("test", Schema(2))
     val results = table.search(vec(1, 0)).limit(10).execute()
     results shouldBe empty
   }
@@ -163,12 +167,15 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   "Metadata filtering" should "filter by equality" in {
     val table = new VectorTable("test", Schema(3))
-    table.add(Seq(
-      (vec(1, 0, 0), Map("cat" -> MetadataValue.StringVal("A"))),
-      (vec(0.9f, 0.1f, 0), Map("cat" -> MetadataValue.StringVal("B"))),
-      (vec(0.8f, 0.2f, 0), Map("cat" -> MetadataValue.StringVal("A")))
-    ))
-    val results = table.search(vec(1, 0, 0))
+    table.add(
+      Seq(
+        (vec(1, 0, 0), Map("cat" -> MetadataValue.StringVal("A"))),
+        (vec(0.9f, 0.1f, 0), Map("cat" -> MetadataValue.StringVal("B"))),
+        (vec(0.8f, 0.2f, 0), Map("cat" -> MetadataValue.StringVal("A")))
+      )
+    )
+    val results = table
+      .search(vec(1, 0, 0))
       .where(MetadataFilter.eq("cat", MetadataValue.StringVal("A")))
       .limit(10)
       .execute()
@@ -178,16 +185,21 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   it should "filter with compound predicates" in {
     val table = new VectorTable("test", Schema(2))
-    table.add(Seq(
-      (vec(1, 0), Map("x" -> MetadataValue.IntVal(1), "y" -> MetadataValue.StringVal("a"))),
-      (vec(0, 1), Map("x" -> MetadataValue.IntVal(2), "y" -> MetadataValue.StringVal("a"))),
-      (vec(1, 1), Map("x" -> MetadataValue.IntVal(1), "y" -> MetadataValue.StringVal("b")))
-    ))
-    val results = table.search(vec(1, 0))
-      .where(MetadataFilter.and(
-        MetadataFilter.eq("x", MetadataValue.IntVal(1)),
-        MetadataFilter.eq("y", MetadataValue.StringVal("a"))
-      ))
+    table.add(
+      Seq(
+        (vec(1, 0), Map("x" -> MetadataValue.IntVal(1), "y" -> MetadataValue.StringVal("a"))),
+        (vec(0, 1), Map("x" -> MetadataValue.IntVal(2), "y" -> MetadataValue.StringVal("a"))),
+        (vec(1, 1), Map("x" -> MetadataValue.IntVal(1), "y" -> MetadataValue.StringVal("b")))
+      )
+    )
+    val results = table
+      .search(vec(1, 0))
+      .where(
+        MetadataFilter.and(
+          MetadataFilter.eq("x", MetadataValue.IntVal(1)),
+          MetadataFilter.eq("y", MetadataValue.StringVal("a"))
+        )
+      )
       .limit(10)
       .execute()
     results.size shouldBe 1
@@ -196,11 +208,14 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   it should "support negation" in {
     val table = new VectorTable("test", Schema(2))
-    table.add(Seq(
-      (vec(1, 0), Map("cat" -> MetadataValue.StringVal("A"))),
-      (vec(0, 1), Map("cat" -> MetadataValue.StringVal("B")))
-    ))
-    val results = table.search(vec(1, 0))
+    table.add(
+      Seq(
+        (vec(1, 0), Map("cat" -> MetadataValue.StringVal("A"))),
+        (vec(0, 1), Map("cat" -> MetadataValue.StringVal("B")))
+      )
+    )
+    val results = table
+      .search(vec(1, 0))
       .where(MetadataFilter.not(MetadataFilter.eq("cat", MetadataValue.StringVal("A"))))
       .limit(10)
       .execute()
@@ -212,11 +227,13 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   "Cosine search" should "rank by cosine similarity" in {
     val table = new VectorTable("test", Schema(3, DistanceMetric.Cosine))
-    table.addVectors(Seq(
-      vec(1, 0, 0),
-      vec(0, 1, 0),
-      vec(0.7f, 0.7f, 0)
-    ))
+    table.addVectors(
+      Seq(
+        vec(1, 0, 0),
+        vec(0, 1, 0),
+        vec(0.7f, 0.7f, 0)
+      )
+    )
     val results = table.search(vec(1, 0, 0)).limit(3).execute()
     results.head.record.id shouldBe 0L
     results.head.distance shouldBe (0.0f +- 1e-5f)
@@ -224,11 +241,13 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   "Dot product search" should "rank by dot product" in {
     val table = new VectorTable("test", Schema(3, DistanceMetric.Dot))
-    table.addVectors(Seq(
-      vec(1, 0, 0),
-      vec(10, 0, 0),
-      vec(0, 1, 0)
-    ))
+    table.addVectors(
+      Seq(
+        vec(1, 0, 0),
+        vec(10, 0, 0),
+        vec(0, 1, 0)
+      )
+    )
     val results = table.search(vec(1, 0, 0)).limit(3).execute()
     results.head.record.id shouldBe 1L
     results.head.distance shouldBe -10.0f
@@ -237,8 +256,8 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
   // ---- IVF Index ----
 
   "IVF index" should "return approximate nearest neighbors" in {
-    val rng = new scala.util.Random(42)
-    val d = 16
+    val rng   = new scala.util.Random(42)
+    val d     = 16
     val table = new VectorTable("test", Schema(d))
 
     val clusterCenters = Array(
@@ -256,7 +275,7 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
     table.createIndex(IVFConfig(nPartitions = 8, nProbes = 2))
     table.hasIndex shouldBe true
 
-    val query = Array.fill(d)(0.0f)
+    val query   = Array.fill(d)(0.0f)
     val results = table.search(query).limit(10).execute()
     results.size shouldBe 10
     results.foreach(_.distance should be < 20.0f)
@@ -264,14 +283,16 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
 
   it should "find the exact nearest neighbor with enough probes" in {
     val table = new VectorTable("test", Schema(4))
-    table.addVectors(Seq(
-      vec(1, 0, 0, 0),
-      vec(0, 1, 0, 0),
-      vec(0, 0, 1, 0),
-      vec(0, 0, 0, 1),
-      vec(0.5f, 0.5f, 0, 0),
-      vec(0.9f, 0.1f, 0, 0)
-    ))
+    table.addVectors(
+      Seq(
+        vec(1, 0, 0, 0),
+        vec(0, 1, 0, 0),
+        vec(0, 0, 1, 0),
+        vec(0, 0, 0, 1),
+        vec(0.5f, 0.5f, 0, 0),
+        vec(0.9f, 0.1f, 0, 0)
+      )
+    )
     table.createIndex(IVFConfig(nPartitions = 2, nProbes = 2))
 
     val results = table.search(vec(1, 0, 0, 0)).limit(1).execute()
@@ -280,8 +301,8 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
   }
 
   it should "work with metadata filtering post-index" in {
-    val rng = new scala.util.Random(123)
-    val d = 8
+    val rng   = new scala.util.Random(123)
+    val d     = 8
     val table = new VectorTable("test", Schema(d))
 
     val vecs = (0 until 200).map: i =>
@@ -291,7 +312,8 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
     table.createIndex(IVFConfig(nPartitions = 4, nProbes = 4))
 
     val query = Array.fill(d)(0.0f)
-    val results = table.search(query)
+    val results = table
+      .search(query)
       .where(MetadataFilter.eq("parity", MetadataValue.StringVal("even")))
       .limit(5)
       .execute()
@@ -302,16 +324,18 @@ class VectorDBSpec extends AnyFlatSpec with Matchers:
   // ---- End-to-end ----
 
   "End-to-end workflow" should "support create, add, index, search, delete" in {
-    val db = VectorDB.open("e2e-test")
+    val db    = VectorDB.open("e2e-test")
     val table = db.createTable("embeddings", Schema(dimension = 4, metric = DistanceMetric.Cosine))
 
-    val ids = table.add(Seq(
-      (vec(1, 0, 0, 0), Map("text" -> MetadataValue.StringVal("north"))),
-      (vec(0, 1, 0, 0), Map("text" -> MetadataValue.StringVal("east"))),
-      (vec(-1, 0, 0, 0), Map("text" -> MetadataValue.StringVal("south"))),
-      (vec(0, -1, 0, 0), Map("text" -> MetadataValue.StringVal("west"))),
-      (vec(0.7f, 0.7f, 0, 0), Map("text" -> MetadataValue.StringVal("northeast")))
-    ))
+    val ids = table.add(
+      Seq(
+        (vec(1, 0, 0, 0), Map("text" -> MetadataValue.StringVal("north"))),
+        (vec(0, 1, 0, 0), Map("text" -> MetadataValue.StringVal("east"))),
+        (vec(-1, 0, 0, 0), Map("text" -> MetadataValue.StringVal("south"))),
+        (vec(0, -1, 0, 0), Map("text" -> MetadataValue.StringVal("west"))),
+        (vec(0.7f, 0.7f, 0, 0), Map("text" -> MetadataValue.StringVal("northeast")))
+      )
+    )
     ids.size shouldBe 5
 
     val results = table.search(vec(1, 0, 0, 0)).limit(2).execute()
