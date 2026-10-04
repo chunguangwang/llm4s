@@ -119,13 +119,15 @@ This matches the demo output: root page 8, 8 node pages allocated, and a file of
 
 ## 7. Limitations to know about
 
-These come from the original Java code; the Scala version keeps them as they were.
+These come from the original Java code.
 
-1. **A crash can corrupt the file.** `nextPageId` is written to the header only when the root changes or on `close()`. If the process dies after some splits, the header on disk has an old `nextPageId`. After reopening, new pages would overwrite live nodes. A split also writes the left node, the right node and the parent separately, with nothing like a write-ahead log to make them atomic.
+1. **Splits aren't atomic.** A split writes the left node, the right node and the parent separately, with nothing like a write-ahead log to make them atomic. A crash partway through can leave the tree inconsistent.
+
+   A related problem has been fixed. `nextPageId` is written to the header only when the root changes or on `close()`, so after a crash the header can hold an old value, and reopening used to hand out page numbers that live nodes still occupied. `readFileHeader` now takes the larger of the header value and the number of pages in the file (`pagesInFile`). The file size is never out of date, because every new page is written right after it's allocated.
 2. **Duplicate keys aren't handled.** Inserting a key that already exists adds a second copy instead of updating the first. Search returns whichever copy it reaches first.
 3. **There is no delete.** Deletion is the hardest B-tree operation, because underfull nodes have to borrow from or merge with their siblings.
 4. **Most of each page is empty.** A full node with `T = 2` uses at most 85 bytes of 4096. In a real B-tree, `T` is chosen so a node fills its page. Here that is about `T = 85`, or 169 keys per node, which would make the tree roughly 3 levels deep for a million keys instead of about 20.
 5. **No page cache.** Every visit to a node is a real `read` call, and every node on the insert path is rewritten even when it didn't change (line 159).
 6. **Partial reads and writes, and threads.** `channel.read`/`write` are allowed to transfer fewer bytes than asked for, and the code doesn't loop to finish them. Using `position(...)` and then `read` is also unsafe if several threads share the channel. Using `channel.read(buf, offset)` would fix the threading problem.
 
-The most useful fixes would probably be #1 (write the header after each allocation) and #4 (choose `T` to fill a page).
+The most useful next fix would probably be #4 (choose `T` to fill a page).

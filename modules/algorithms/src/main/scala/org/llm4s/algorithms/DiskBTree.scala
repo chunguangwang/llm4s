@@ -35,7 +35,7 @@ class DiskBTree(file: File) extends Closeable:
     val pageSize = buf.getInt()
     if pageSize != PAGE_SIZE then throw IOException(s"Mismatched page size: Expected $PAGE_SIZE but found $pageSize")
     rootPageId = buf.getLong()
-    nextPageId = buf.getLong()
+    nextPageId = math.max(buf.getLong(), pagesInFile(channel))
 
   private def flushFileHeader(): Unit =
     val buf = ByteBuffer.allocate(PAGE_SIZE)
@@ -205,6 +205,11 @@ object DiskBTree:
       for i <- 0 until node.numKeys do node.values(i) = buf.getLong()
       if !isLeaf then for i <- 0 to node.numKeys do node.children(i) = buf.getLong()
       node
+
+  // The header's page counter is flushed only on root changes and close(), so after a crash it can lag
+  // behind pages already written. File length can't lag: every page is written right after allocation.
+  private def pagesInFile(channel: FileChannel): Long =
+    (channel.size() + PAGE_SIZE - 1) / PAGE_SIZE
 
   // ---------------------------------------------------------
   // Demonstration & Verification
