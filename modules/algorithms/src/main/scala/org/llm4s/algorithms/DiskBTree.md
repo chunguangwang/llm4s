@@ -131,3 +131,163 @@ These come from the original Java code.
 6. **Partial reads and writes, and threads.** `channel.read`/`write` are allowed to transfer fewer bytes than asked for, and the code doesn't loop to finish them. Using `position(...)` and then `read` is also unsafe if several threads share the channel. Using `channel.read(buf, offset)` would fix the threading problem.
 
 The most useful next fix would probably be #4 (choose `T` to fill a page).
+
+## 8. Q&A
+
+### What does `(channel.size() + PAGE_SIZE - 1) / PAGE_SIZE` mean?
+
+It calculates how many pages the file holds, counting a partly written last page as a whole page. In math terms it is **ceiling division**: `⌈size / PAGE_SIZE⌉`. It is used by `pagesInFile` (line 211).
+
+- `channel.size()` is the file's length in bytes, as a `Long`.
+- Dividing one integer by another truncates the result, so plain `size / 4096` always rounds **down**.
+- Adding `PAGE_SIZE - 1` (4095) before dividing makes it round **up** instead.
+
+| File size (bytes) | `size / 4096` (down) | `(size + 4095) / 4096` (up) |
+|---|---|---|
+| 0 | 0 | 0 |
+| 4096 (exactly 1 page) | 1 | 1 |
+| 4097 (1 page + 1 byte) | 1 | **2** |
+| 36,864 (exactly 9 pages) | 9 | 9 |
+| 40,000 (9 full pages + a partial one) | 9 | **10** |
+
+When the size is an exact multiple of 4096, adding 4095 isn't enough to reach the next multiple, so the result is unchanged. If there is even one extra byte, the sum crosses into the next multiple and the count goes up by one.
+
+**Why round up:** normally the file is always a whole number of pages, so both forms give the same answer. A crash in the middle of writing a new page could leave a partial page at the end of the file, though. Rounding down would treat that page's number as free, so it would be handed out again. Rounding up treats it as used and skips it, which wastes at most one page and never overwrites anything.
+
+**Why the count equals the next free page:** pages are numbered from 0, with page 0 as the header, and the file holds pages `0` to `N-1`. So a file of `N` pages has `N` as its first unused page number. A 9-page file holds pages 0–8, and the next new node goes on page 9.
+
+### What is `rootPageId`?
+
+`rootPageId` is the page number of the tree's root node, where every search and insert starts. Because page `N` starts at byte `N * 4096`, it also tells the code where the root sits in the file.
+
+- **Declared** at line 13 as `private var rootPageId: Long = -1L`. `-1` means the tree is empty. There's no page -1, so the value can't be confused with a real page.
+- **Stored** in the header on page 0, at bytes 8–15 (line 44). That's how the root can be found again after the file is closed and reopened.
+- **Read** back from the header when an existing file is opened (line 37).
+- **Used** whenever an operation starts. `search` (line 72) returns `None` if it's `-1`, otherwise starts searching at that page. `insert` (line 89) creates the first node if it's `-1`, otherwise starts the recursive insert at that page.
+- **Changed** only in two cases, and each time the header is rewritten immediately:
+  1. **The first insert** (line 95): the new leaf becomes the root.
+  2. **A root split** (line 107): a new node is created above the old root, and the new node becomes the root.
+
+The root page doesn't change in any other case. Most inserts and splits happen lower in the tree and leave the root on its existing page.
+
+In the demo, it changed three times:
+
+| After inserting | `rootPageId` | Why |
+|---|---|---|
+| 10 | 1 | First insert creates the root leaf on page 1 |
+| 40 | 3 | Root leaf split; new root on page 3 |
+| 100 | 8 | Root split again; new root on page 8 |
+
+The root's page number isn't always 1, and it isn't necessarily the last page either. It moves wherever the newest root was allocated, which is why the header has to record it rather than the code assuming a fixed location.
+
+### What are keys and values?
+
+Each entry in the tree is a key–value pair, and both parts are `Long`s:
+
+- **Key:** what you look things up by. The tree keeps keys sorted, and that order decides where each entry goes.
+- **Value:** the data attached to that key. The tree stores it and returns it but never looks at it.
+
+```scala
+tree.insert(key = 42, value = 99000)
+tree.search(42)   // Some(99000)
+```
+
+**How they're stored:** each node has two parallel arrays, `keys` and `values` (lines 183–184). `keys(i)` and `values(i)` form one pair, so whenever a key is shifted or moved during an insert or split, its value moves with it:
+
+```
+keys:    [ 10   | 20    | 30    ]
+values:  [10000 | 20000 | 30000 ]
+```
+
+**What keys do:** they are the only thing the algorithm compares. Search walks down the tree by comparing the target with keys (line 78), inserts use keys to find the sorted position (line 115), and in internal nodes the keys separate the children. Everything under `children(i)` is smaller than `keys(i)`.
+
+**What values are for:** the demo maps each key `k` to `k * 1000`, which is a placeholder. The comment on line 225 describes the intended use: the value is a **pointer to the real data**, stored elsewhere, such as a byte offset into a separate data file or a row ID.
+
+```
+index file (B-tree)              data file
+key: user_id 42  ──value──►  byte 99000: { id: 42, name: "Ana", email: ... }
+```
+
+This is how database indexes work. The B-tree stays small and quick to search because it holds only keys and pointers, and one lookup tells you where to read the full record.
+
+Two details specific to this implementation:
+- **Values live in internal nodes too**, not just in leaves. A search can stop as soon as it finds the key at any level. In a B+ tree, values are kept only in the leaves.
+- **Keys aren't unique.** Inserting the same key twice stores two entries instead of replacing the first value (limitation #2).
+
+### Walkthrough: the first insert into an empty tree (lines 89–96)
+
+```scala
+if rootPageId == -1 then
+  val root = Node(allocatePageId(), isLeaf = true)
+  root.keys(0) = key
+  root.values(0) = value
+  root.numKeys = 1
+  writeNode(root)
+  rootPageId = root.pageId
+  flushFileHeader()
+```
+
+When the tree has no nodes yet, there's nothing to search down through, so the first key becomes a new one-key root node. In the demo this runs once, for key 10 with value 10000.
+
+1. **`if rootPageId == -1 then`**: the tree is empty, either a brand-new file or one that was never given a key. Every later insert takes the `else` branch, which walks down from the existing root.
+2. **`Node(allocatePageId(), isLeaf = true)`**: reserves a page and builds a node for it in memory. In a new file the page is 1, because page 0 is the header. `isLeaf = true` because the tree's only node has no children; a node is a leaf whenever nothing hangs below it, even if it's also the root. Nothing has been written to disk yet.
+3. **`root.keys(0) = key` and `root.values(0) = value`**: put the pair into slot 0. No shifting or sorting is needed because the node is empty.
+4. **`root.numKeys = 1`**: marks how many slots are in use. This is required because `writeTo` serializes only the first `numKeys` entries (lines 191–192). If `numKeys` stayed 0, the page would be written with no keys.
+5. **`writeNode(root)`**: serializes the node and writes it at `pageId * 4096`, which is byte 4096 for page 1:
+   ```
+   byte 0     : 1        (isLeaf)
+   bytes 1-4  : 1        (numKeys)
+   bytes 5-12 : 10       (key)
+   bytes 13-20: 10000    (value)
+   rest       : zeros    (leaf, so no child pointers)
+   ```
+6. **`rootPageId = root.pageId`**: points the tree at its new root, in memory only.
+7. **`flushFileHeader()`**: rewrites page 0 so the header on disk records `rootPageId = 1` and `nextPageId = 2`. Without this step, reopening the file would read `-1` and treat the tree as empty, even though page 1 holds data.
+
+**Why the order matters:** the node is written before the header points to it. If the process crashes between the two writes, the header still says `-1`, so the tree reopens as empty and the orphaned page 1 is harmless. With the order reversed, a crash could leave the header pointing at a page that was never written. The root-split code (lines 99–108) follows the same rule: write the new root, then update the header.
+
+After this branch runs, the file is two pages, 8192 bytes:
+
+```
+page 0: header [ BTRE | 4096 | root=1 | next=2 ]
+page 1: leaf   [ 10 → 10000 ]
+```
+
+### What is the root's `pageId`?
+
+`root.pageId` is the page number that the new root node was given when it was created. In a new file, that number is **1**.
+
+`pageId` is a constructor field of `Node` (line 180): `private class Node(val pageId: Long, val isLeaf: Boolean)`. Whatever `allocatePageId()` returns is stored in the node and never changes. Every node knows its own page number, because `writeNode` needs it to work out where in the file to write (line 64): `channel.position(node.pageId * PAGE_SIZE)`.
+
+`root.pageId` and `rootPageId` hold the same number here, but they belong to different things:
+
+| | `root.pageId` | `rootPageId` |
+|---|---|---|
+| Belongs to | the node | the tree |
+| Meaning | "I live on page 1" | "the tree starts at page 1" |
+| Changes? | Never | Yes, on every root split |
+| Saved where | Implied by the node's position in the file | Header, bytes 8–15 |
+
+A node doesn't know whether it's the root. Being the root is a role, and the role can move. In the demo, page 1 starts as the root. After the split at key 40, page 1 is just a leaf holding `[10]` and the root is page 3. Page 1's `pageId` is still 1, while `rootPageId` has moved on.
+
+**Is it always 1?** It is for a new file, because this branch runs only on an empty tree and page 1 is the first free page. One exception comes from the crash fix: if a crash happened after page 1 was written but before the header was updated, the header still says `-1`, but the file is already two pages long. On reopen, `pagesInFile` makes `nextPageId = 2`, so the first insert puts the root on page 2. The old page 1 becomes unused space that nothing points to, which is harmless.
+
+### Does the header occupy 4096 bytes, stored before the root node?
+
+Yes. The header takes up the whole of page 0, bytes 0–4095, and the root node goes right after it, starting at byte 4096. Only the first 24 bytes of the header page hold data; the other 4072 are zero padding.
+
+```
+byte 0                 byte 4096               byte 8192
+| page 0: header       | page 1: root leaf      |
+| 24 bytes used + pad  | 21 bytes used + pad    |
+```
+
+**Why a whole page for 24 bytes:** so every node page starts at a multiple of 4096. Then a node's location is simply `pageId * 4096`. If the header took only 24 bytes, every offset would be `24 + pageId * 4096`. Page boundaries would no longer line up with the operating system's and disk's 4 KB blocks, so writing one node could touch two blocks. Real databases do the same thing, and they often use the rest of the header page for more metadata, such as a list of freed pages.
+
+**"Before" is also true in time, with one extra step.** For a new file, the writes happen in this order:
+
+1. **The constructor writes the header** (`initFileHeader`, line 23) with `root = -1, next = 1`. The file is one page long.
+2. **The first insert writes the root node** to page 1 (`writeNode`). The file is now two pages long.
+3. **The header is rewritten** (`flushFileHeader`) with `root = 1, next = 2`.
+
+So the header is written both before and after the root: first to create a valid empty tree, then to point at the new root. Step 3 overwrites page 0 in place, which works because the header is always at byte 0 and is always the same size.
